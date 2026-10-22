@@ -12,7 +12,7 @@ Um robô em Python lê a lista de clientes de uma página web, envia os dados pa
 | Workflow MVP com mensagens estáticas | [`n8n/workflow.json`](n8n/workflow.json) | ✅ |
 | Workflow com Agente de IA (desafio completo) | [`n8n/workflow-ia.json`](n8n/workflow-ia.json) | ✅ |
 | Documentação das decisões técnicas | este README | ✅ |
-| Prints do fluxo funcionando | [`prints/`](prints/) | 📸 |
+| Prints do fluxo funcionando | [`prints/`](prints/) | ✅ |
 
 ## 🏗️ Arquitetura
 
@@ -111,11 +111,14 @@ São opções de baixo risco, ideais para proteger seu patrimônio e manter liqu
 
 ## 📸 Prints
 
-<!-- Adicione aqui os prints do fluxo funcionando, por exemplo:
-![Workflow no N8N](prints/workflow.png)
-![Execução no N8N](prints/execucao.png)
-![Saída no Colab](prints/colab.png)
--->
+### Workflow no N8N
+![Workflow MVP no N8N](prints/workflow.png)
+
+### Execução concluída: 1 requisição com os clientes, 10 mensagens geradas
+![Execução do workflow no N8N](prints/execucao.png)
+
+### Saída do robô no Google Colab
+![Mensagens recebidas no Colab](prints/colab.png)
 
 ## 🛠️ Tecnologias
 
