@@ -1,0 +1,109 @@
+{
+  "name": "Assistente de Investimentos - MVP (mensagens estáticas)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clientes-investimentos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5918fe08-6fd7-4f16-9eab-e6ca595cb0b4",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "cfa5b8cb-311b-47c8-a5d6-55de13c530b9"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "id": "06ff350c-06e9-4af4-983e-d94a7301eda4",
+      "name": "Ler investimentos (CSV)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nó \"Cruzar perfis\" (Code, modo: Run Once for All Items)\n// Entrada: o CSV de investimentos vindo do nó \"Ler investimentos (CSV)\"\n//          e a lista de clientes recebida pelo nó \"Webhook\".\n// Saída:   um item por cliente, com o produto recomendado e a mensagem.\n\nconst csv = $input.first().json.data;\nconst corpo = $('Webhook').first().json.body || {};\nconst clientes = Array.isArray(corpo) ? corpo : (corpo.clientes || []);\n\n// Templates fixos por perfil (MVP)\nconst TEMPLATES = {\n  conservador: {\n    foco: 'renda fixa e segurança',\n    fechamento: 'São opções de baixo risco, ideais para proteger seu patrimônio e manter liquidez.',\n  },\n  moderado: {\n    foco: 'um mix equilibrado entre renda fixa e renda variável',\n    fechamento: 'Assim você busca um retorno acima da média sem abrir mão de parte da segurança.',\n  },\n  arrojado: {\n    foco: 'ações e produtos com maior potencial de retorno',\n    fechamento: 'Lembre-se: renda variável oscila mais, então pense no longo prazo.',\n  },\n};\n\n// ---------- funções auxiliares ----------\nfunction lerCsv(texto) {\n  const linhas = String(texto || '').trim().split(/\\r?\\n/).filter(l => l.trim());\n  const cabecalho = linhas.shift().split(',').map(c => c.trim());\n  return linhas.map(linha => {\n    const valores = linha.split(',');\n    const item = {};\n    cabecalho.forEach((col, i) => { item[col] = (valores[i] || '').trim(); });\n    item.minimo = Number(item.minimo) || 0;\n    return item;\n  });\n}\n\n// \"R$ 12.500,00\" -> 12500\nfunction paraNumero(saldo) {\n  if (typeof saldo === 'number') return saldo;\n  const limpo = String(saldo || '').replace(/[^\\d,]/g, '').replace(',', '.');\n  return Number(limpo) || 0;\n}\n\nfunction brl(valor) {\n  return 'R$ ' + valor.toFixed(2).replace('.', ',').replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n}\n\n// \"13.0%\" -> 13 ; \"Variável\" ou \"IPCA+6.0%\" -> null (não comparável)\nfunction taxaFixa(rentabilidade) {\n  const m = /^([\\d.]+)%$/.exec(rentabilidade);\n  return m ? Number(m[1]) : null;\n}\n\nfunction descrever(p) {\n  return `${p.produto} (rentabilidade ${p.rentabilidade}, mínimo ${brl(p.minimo)})`;\n}\n\n// ---------- cruzamento ----------\nconst investimentos = lerCsv(csv);\n\nreturn clientes.map(cliente => {\n  const nome = String(cliente.nome || '').trim();\n  const primeiroNome = nome.split(' ')[0] || 'cliente';\n  const perfil = String(cliente.perfil || '').trim();\n  const chave = perfil.toLowerCase();\n  const saldo = paraNumero(cliente.saldo);\n  const template = TEMPLATES[chave];\n\n  const base = {\n    nome,\n    email: cliente.email,\n    perfil,\n    saldo,\n    saldo_formatado: brl(saldo),\n  };\n\n  // Perfil desconhecido: não arrisca uma recomendação\n  if (!template) {\n    return { json: { ...base, produto_recomendado: null, opcoes: [], opcoes_detalhe: [],\n      mensagem: `Olá, ${primeiroNome}! Não encontramos seu perfil de investidor atualizado. ` +\n        'Responda nosso questionário de perfil para receber recomendações personalizadas.',\n      origem: 'template' } };\n  }\n\n  // Produtos do perfil que cabem no saldo do cliente\n  const elegiveis = investimentos\n    .filter(p => p.perfil.toLowerCase() === chave && p.minimo <= saldo);\n\n  if (elegiveis.length === 0) {\n    return { json: { ...base, produto_recomendado: null, opcoes: [], opcoes_detalhe: [],\n      mensagem: `Olá, ${primeiroNome}! Seu perfil é ${perfil}, com foco em ${template.foco}. ` +\n        `Com o saldo atual de ${brl(saldo)}, ainda não atingimos a aplicação mínima dos produtos ` +\n        'do seu perfil. Que tal fazer novos aportes? Assim que possível, enviamos as melhores opções.',\n      origem: 'template' } };\n  }\n\n  // Destaque: maior taxa fixa; se não houver taxa fixa (renda variável), o de maior mínimo que cabe no saldo\n  const ordenados = [...elegiveis].sort((a, b) => {\n    const ta = taxaFixa(a.rentabilidade), tb = taxaFixa(b.rentabilidade);\n    if (ta !== null && tb !== null) return tb - ta;\n    if (ta !== null) return -1;\n    if (tb !== null) return 1;\n    return b.minimo - a.minimo;\n  });\n  const destaque = ordenados[0];\n  const outras = ordenados.slice(1);\n\n  let mensagem = `Olá, ${primeiroNome}! Como seu perfil é ${perfil}, nossa sugestão tem foco em ${template.foco}. ` +\n    `Com seu saldo de ${brl(saldo)}, recomendamos ${descrever(destaque)}.`;\n  if (outras.length) {\n    mensagem += ` Outras opções do seu perfil que cabem no seu saldo: ${outras.map(p => p.produto).join(', ')}.`;\n  }\n  mensagem += ` ${template.fechamento}`;\n\n  return { json: { ...base,\n    produto_recomendado: destaque.produto,\n    opcoes: ordenados.map(p => p.produto),\n    opcoes_detalhe: ordenados.map(descrever),\n    mensagem,\n    origem: 'template' } };\n});\n"
+      },
+      "id": "2c868e39-3182-4910-a4b8-0b1349bf6c2d",
+      "name": "Cruzar perfis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "40474762-91f9-4afa-ae33-57ad049f3509",
+      "name": "Responder ao Python",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ler investimentos (CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler investimentos (CSV)": {
+      "main": [
+        [
+          {
+            "node": "Cruzar perfis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cruzar perfis": {
+      "main": [
+        [
+          {
+            "node": "Responder ao Python",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
